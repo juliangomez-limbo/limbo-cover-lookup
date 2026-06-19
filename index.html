@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Limbo — Cover Lookup</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: #0a0a0a;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      padding: 2rem;
+    }
+
+    .logo {
+      font-size: 1.1rem;
+      font-weight: 600;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: #888;
+      margin-bottom: 3rem;
+    }
+
+    .search-box {
+      width: 100%;
+      max-width: 480px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    input[type="text"] {
+      width: 100%;
+      padding: 1rem 1.25rem;
+      font-size: 1.1rem;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 8px;
+      color: #fff;
+      outline: none;
+      text-align: center;
+      letter-spacing: 0.05em;
+      transition: border-color 0.2s;
+    }
+
+    input[type="text"]:focus {
+      border-color: #555;
+    }
+
+    input[type="text"]::placeholder {
+      color: #444;
+    }
+
+    button {
+      width: 100%;
+      padding: 1rem;
+      font-size: 1rem;
+      font-weight: 600;
+      background: #fff;
+      color: #000;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      letter-spacing: 0.05em;
+      transition: opacity 0.2s;
+    }
+
+    button:hover { opacity: 0.85; }
+    button:disabled { opacity: 0.4; cursor: default; }
+
+    .result {
+      margin-top: 2.5rem;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 1rem;
+      width: 100%;
+      max-width: 480px;
+    }
+
+    .result img {
+      width: 100%;
+      max-width: 400px;
+      border-radius: 8px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+    }
+
+    .result .title {
+      font-size: 1rem;
+      color: #aaa;
+      text-align: center;
+    }
+
+    .error {
+      margin-top: 1.5rem;
+      color: #e05;
+      font-size: 0.9rem;
+      display: none;
+    }
+
+    .spinner {
+      margin-top: 1.5rem;
+      width: 28px;
+      height: 28px;
+      border: 2px solid #333;
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      display: none;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+  <div class="logo">Limbo Music</div>
+
+  <div class="search-box">
+    <input type="text" id="upc" placeholder="Enter UPC code" maxlength="14" inputmode="numeric">
+    <button id="btn" onclick="lookup()">Search</button>
+  </div>
+
+  <div class="spinner" id="spinner"></div>
+  <div class="error" id="error"></div>
+
+  <div class="result" id="result">
+    <img id="cover" src="" alt="Album cover">
+    <div class="title" id="albumTitle"></div>
+  </div>
+
+  <script>
+    const API_BASE = 'https://api.limbomusic.com/api/v1';
+    const TOKEN_KEY = 'limbo_api_token';
+
+    function getToken() {
+      return localStorage.getItem(TOKEN_KEY);
+    }
+
+    function promptToken() {
+      const t = window.prompt('Enter your Limbo API token:');
+      if (t && t.trim()) {
+        localStorage.setItem(TOKEN_KEY, t.trim());
+        return t.trim();
+      }
+      return null;
+    }
+
+    document.getElementById('upc').addEventListener('keydown', e => {
+      if (e.key === 'Enter') lookup();
+    });
+
+    async function lookup() {
+      const upc = document.getElementById('upc').value.trim();
+      if (!upc) return;
+
+      let token = getToken();
+      if (!token) {
+        token = promptToken();
+        if (!token) return;
+      }
+
+      setLoading(true);
+      clearResult();
+
+      try {
+        const url = `${API_BASE}/albums?filter[upc-code]=${encodeURIComponent(upc)}&fields[albums]=title,artwork,upc-code&page[size]=1`;
+        const res = await fetch(url, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Accept': 'application/vnd.api+json'
+          }
+        });
+
+        if (res.status === 401) {
+          localStorage.removeItem(TOKEN_KEY);
+          showError('Invalid token. Refresh and try again.');
+          return;
+        }
+
+        const data = await res.json();
+
+        if (!data.data || data.data.length === 0) {
+          showError('No album found for this UPC.');
+          return;
+        }
+
+        const album = data.data[0].attributes;
+        showResult(album.artwork, album.title);
+
+      } catch (err) {
+        showError('Connection error. Try again.');
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    function setLoading(on) {
+      document.getElementById('spinner').style.display = on ? 'block' : 'none';
+      document.getElementById('btn').disabled = on;
+    }
+
+    function clearResult() {
+      document.getElementById('result').style.display = 'none';
+      document.getElementById('error').style.display = 'none';
+    }
+
+    function showResult(artwork, title) {
+      document.getElementById('cover').src = artwork;
+      document.getElementById('albumTitle').textContent = title || '';
+      document.getElementById('result').style.display = 'flex';
+    }
+
+    function showError(msg) {
+      const el = document.getElementById('error');
+      el.textContent = msg;
+      el.style.display = 'block';
+    }
+  </script>
+
+</body>
+</html>
